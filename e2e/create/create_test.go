@@ -51,6 +51,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// TestCreateInsecureCluster tests the creation of insecure cluster, and it should be successful.
 func TestCreateInsecureCluster(t *testing.T) {
 	// Test Creating an insecure cluster
 	// No actions on the cluster just create it and
@@ -90,6 +91,7 @@ func TestCreateInsecureCluster(t *testing.T) {
 	steps.Run(t)
 }
 
+// TestCreatesSecureCluster tests the creation of secure cluster, and it should be successful.
 func TestCreatesSecureCluster(t *testing.T) {
 
 	// Test Creating a secure cluster
@@ -123,6 +125,83 @@ func TestCreatesSecureCluster(t *testing.T) {
 				testutil.RequireClusterToBeReadyEventuallyTimeout(t, sb, builder, 500*time.Second)
 				testutil.RequireDatabaseToFunction(t, sb, builder)
 				t.Log("Done with basic cluster")
+			},
+		},
+	}
+	steps.Run(t)
+}
+
+// TestCreateSecureClusterWithInvalidVersion tests cluster creation with invalid version and the cluster should fail.
+func TestCreateSecureClusterWithInvalidVersion(t *testing.T) {
+	// Test create a cluster with invalid version
+	// Check it went into ErrImagePull state and then marked CR into failed state
+	// tear it down
+
+	if parallel {
+		t.Parallel()
+	}
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	testLog := zapr.NewLogger(zaptest.NewLogger(t))
+
+	actor.Log = testLog
+
+	sb := testenv.NewDiffingSandbox(t, env)
+	sb.StartManager(t, controller.InitClusterReconcilerWithLogger(testLog))
+
+		builder := testutil.NewBuilder("crdb").WithNodeCount(3).WithTLS().
+			WithImage("cockroachdb/cockroach:v20.2.555").
+			WithPVDataStore("1Gi", "standard" /* default storage class in KIND */)
+
+		steps := testutil.Steps{
+			{
+				Name: "creates 3-node secure cluster with invalid image",
+				Test: func(t *testing.T) {
+					require.NoError(t, sb.Create(builder.Cr()))
+					testutil.RequireClusterInImagePullBackoff(t, sb, builder)
+					testutil.RequireClusterInFailedState(t, sb, builder)
+					t.Log("Done with basic invalid cluster")
+				},
+			},
+		}
+		steps.Run(t)
+
+}
+
+// TestCreateSecureClusterWithNonCRDBImage tests creating a cluster with non-valid image.
+// Creation should fail and CR should be in failed state.
+func TestCreateSecureClusterWithNonCRDBImage(t *testing.T) {
+	// Test create a cluster with non valid CRDB image
+	// Check it went into failed state in initialized state
+	// tear it down
+
+	if parallel {
+		t.Parallel()
+	}
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	testLog := zapr.NewLogger(zaptest.NewLogger(t))
+
+	actor.Log = testLog
+
+	sb := testenv.NewDiffingSandbox(t, env)
+	sb.StartManager(t, controller.InitClusterReconcilerWithLogger(testLog))
+
+	builder := testutil.NewBuilder("crdb").WithNodeCount(3).WithTLS().
+		WithImage("nginx:latest").
+		WithPVDataStore("1Gi", "standard" /* default storage class in KIND */)
+
+	steps := testutil.Steps{
+		{
+			Name: "creates 3-node secure cluster with invalid image",
+			Test: func(t *testing.T) {
+				require.NoError(t, sb.Create(builder.Cr()))
+				testutil.RequireClusterInFailedState(t, sb, builder)
+				t.Log("Done with basic invalid cluster with image other than crdb")
 			},
 		},
 	}
